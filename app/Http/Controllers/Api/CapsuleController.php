@@ -2,13 +2,16 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Models\User;
 use App\Models\Capsule;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
+use App\Models\ReceivedCapsule;
 use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use App\Http\Resources\CapsuleResource;
-use App\Models\ReceivedCapsule;
+use App\Models\images;
+use Faker\Provider\Image;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Routing\Controllers\HasMiddleware;
 
@@ -17,7 +20,7 @@ class CapsuleController extends Controller implements HasMiddleware
     public static function middleware()
     {
         return [
-            new Middleware('auth:sanctum', except: ['index'])
+            new Middleware('auth:sanctum')
         ];
     }
     public function send(Request $request, ReceivedCapsule $capsule) {
@@ -70,7 +73,14 @@ class CapsuleController extends Controller implements HasMiddleware
         }
 
         // Return the capsule as a resource
-        return new CapsuleResource($capsule);
+        return response()->json([
+            'id'=> $capsule['id'],
+            'title'=> $capsule['title'],
+            'message'=> $capsule['message'],
+            'content'=> $capsule['content'],
+            'receiver_email'=> $capsule['receiver_email'],
+            'schedule_open_at'=> $capsule['schedule_open_at']
+        ], 200);
     }
 
     public function view(ReceivedCapsule $receivedCapsule) {
@@ -102,24 +112,52 @@ class CapsuleController extends Controller implements HasMiddleware
             return response()->json(['message' => 'Capsule deleted successfully'], 200);
     }
 
-    public function store(Request $request, Capsule $capsule) {
-
-            $capsule = $request->validate([
+    public function store(Request $request) {
+        // Validate incoming request data
+        $validatedData = $request->validate([
             'title' => 'required|max:50|string',
             'message' => 'required|max:500|string',
-            'content' => 'nullable',
-            'receiver_email' => 'nullable'
+            'receiver_email' => 'nullable|email',
+            'scheduled_open_at' => 'nullable',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048'
         ]);
 
-        $capsules = $request->user()->capsules()->create($capsule);
+        $imagePath = $request->get('images', 'public');
+    
+        // Optionally check if receiver_email exists in users table
+        if (isset($validatedData['receiver_email'])) {
+            $receiver = User::where('email', $validatedData['receiver_email'])->first();
+            
+            if (!$receiver) {
+                return response()->json(['message' => 'Receiver not found.'], 404);
+            }
+        }
+    
+        // Create the capsule for the authenticated user
+        $capsule = $request->user()->capsules()->create($validatedData);
 
+            // Handle image upload if an image is provided
+    if ($request->hasFile('image')) {
+        // Store the image and get the path
+        $imageFile = $request->file('image');
+        $imagePath = $imageFile->store('images', 'public'); // Store in storage/app/public/images
+
+        // Create a new image record and associate it with the capsule
+        $image = new images([
+            'images' => $imagePath,
+            'capsule_type' => get_class($capsule), // Set the capsule type
+            'capsule_id' => $capsule->id
+        ]);
+
+        // Assuming you have a morphMany relationship defined in the Capsule model
+        $capsule->images()->save($image);
+    }
+    
         return response()->json([
-            'id' => $capsules['id'],
-            'user_id' => $capsules['user_id'],
-            'title' => $capsules['title'],
-            'message' => $capsules['message'],
-            'created_at' => $capsules['created_at']
-        ], 200);  
+            'info' => $capsule,
+            'draft' => 'Capsule has been moved to draft',
+            'image' => $imagePath
+        ], 200);
     }
     
     public function update(Request $request, Capsule $capsule) {
@@ -142,8 +180,13 @@ class CapsuleController extends Controller implements HasMiddleware
         $capsule->update($validatedData);
 
         return response()->json([
-            'message'=> 'Updated Successfully',
-            'info' => $capsule
+            'id'=> $capsule['id'],
+            'title'=> $capsule['title'],
+            'message'=> $capsule['message'],
+            'content'=> $capsule['content'],
+            'receiver_email'=> $capsule['receiver_email'],
+            'schedule_open_at'=> $capsule['schedule_open_at'],
+            'messageResponse'=> 'Updated Successfully'
         ], 200);
         }
 }

@@ -18,7 +18,6 @@ return new class extends Migration
                   ->cascadeOnDelete();
             $table->string('title');
             $table->string('message');
-            $table->text('content')->nullable();
             $table->string('receiver_email')->nullable();
             $table->foreign('receiver_email')
                 ->references('email')
